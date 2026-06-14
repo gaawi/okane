@@ -21,7 +21,7 @@ export default function AccountsView({
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("checking");
-  const [currency, setCurrency] = useState("EUR");
+  const currency = "USD";
 
   const balanceFor = (id: string) =>
     transactions
@@ -89,14 +89,7 @@ export default function AccountsView({
               </div>
               <div>
                 <label className="label">Currency</label>
-                <select
-                  className="input"
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                >
-                  <option value="EUR">EUR €</option>
-                  <option value="USD">USD $</option>
-                </select>
+                <div className="input bg-slate-50 text-slate-500">USD $</div>
               </div>
             </div>
             <button onClick={add} disabled={pending} className="btn-primary w-full">
@@ -109,7 +102,7 @@ export default function AccountsView({
           <EmptyState
             icon="🏦"
             title="No accounts yet"
-            hint="Create one account per currency (e.g. a EUR account and a USD account) so imports keep the right currency."
+            hint="Add the bank accounts and cards you want to track."
             action={
               <button onClick={() => setAdding(true)} className="btn-primary">
                 Add your first account

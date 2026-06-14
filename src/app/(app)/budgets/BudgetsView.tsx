@@ -26,7 +26,7 @@ export default function BudgetsView({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [currency, setCurrency] = useState("EUR");
+  const currency = "USD";
   const [scope, setScope] = useState<"month" | "year">("year");
 
   const expenseCats = useMemo(
@@ -104,19 +104,6 @@ export default function BudgetsView({
             >
               This month
             </button>
-          </div>
-          <div className="flex rounded-lg bg-slate-200 p-0.5 text-sm font-semibold">
-            {["EUR", "USD"].map((c) => (
-              <button
-                key={c}
-                onClick={() => setCurrency(c)}
-                className={`rounded-md px-3 py-1 ${
-                  c === currency ? "bg-white shadow-sm" : "text-slate-500"
-                }`}
-              >
-                {c}
-              </button>
-            ))}
           </div>
         </div>
 

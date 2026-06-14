@@ -40,7 +40,7 @@ export default function ImportView({
   const [fileName, setFileName] = useState("");
 
   const [accountId, setAccountId] = useState("");
-  const [currency, setCurrency] = useState("EUR");
+  const [currency] = useState("USD");
 
   // column mapping
   const [dateCol, setDateCol] = useState("");
@@ -204,25 +204,12 @@ export default function ImportView({
             </select>
           ) : (
             <p className="text-sm text-slate-500">
-              No accounts yet — pick a currency below, or{" "}
+              No accounts yet — you can still import without one, or{" "}
               <Link href="/accounts" className="font-medium text-brand-700">
                 create an account
               </Link>{" "}
-              first (recommended for EUR + USD).
+              first.
             </p>
-          )}
-          {!accountId && (
-            <div>
-              <label className="label">Currency for this file</label>
-              <select
-                className="input"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-              >
-                <option value="EUR">EUR €</option>
-                <option value="USD">USD $</option>
-              </select>
-            </div>
           )}
         </div>
 

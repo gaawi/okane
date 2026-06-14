@@ -49,9 +49,9 @@ export default function DashboardView({
     [transactions, budgets],
   );
   const [currency, setCurrency] = useState(
-    currencies[0] ?? profile.base_currency ?? "EUR",
+    currencies[0] ?? profile.base_currency ?? "USD",
   );
-  const cur = currencies.includes(currency) ? currency : (currencies[0] ?? "EUR");
+  const cur = currencies.includes(currency) ? currency : (currencies[0] ?? "USD");
 
   // The active period as a date range, plus how many months it spans (for
   // scaling monthly budgets to the period).

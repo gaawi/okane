@@ -19,7 +19,7 @@ const DRAFT_DEFAULT = {
   description: "",
   amount: "",
   direction: "out" as "in" | "out",
-  currency: "EUR",
+  currency: "USD",
   notes: "",
 };
 
@@ -36,6 +36,7 @@ export default function TransactionsView({
   const [pending, startTransition] = useTransition();
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("");
+  const [visible, setVisible] = useState(150);
   const [sheet, setSheet] = useState<null | "add" | { edit: Transaction }>(null);
 
   const filtered = useMemo(() => {
@@ -49,15 +50,17 @@ export default function TransactionsView({
     });
   }, [transactions, query, catFilter]);
 
+  // Only render a slice — drawing thousands of rows at once is what makes the
+  // page sluggish. Search/filter still run over the full set.
   const grouped = useMemo(() => {
     const map = new Map<string, Transaction[]>();
-    for (const t of filtered) {
+    for (const t of filtered.slice(0, visible)) {
       const arr = map.get(t.posted_on) ?? [];
       arr.push(t);
       map.set(t.posted_on, arr);
     }
     return [...map.entries()];
-  }, [filtered]);
+  }, [filtered, visible]);
 
   const catById = useMemo(
     () => new Map(categories.map((c) => [c.id, c])),
@@ -155,6 +158,15 @@ export default function TransactionsView({
               </div>
             </div>
           ))
+        )}
+
+        {filtered.length > visible && (
+          <button
+            onClick={() => setVisible((v) => v + 150)}
+            className="btn-ghost w-full"
+          >
+            Show more ({visible} of {filtered.length})
+          </button>
         )}
       </div>
 
@@ -363,14 +375,7 @@ function TransactionSheet({
             </div>
             <div>
               <label className="label">Currency</label>
-              <select
-                className="input"
-                value={draft.currency}
-                onChange={(e) => set("currency", e.target.value)}
-              >
-                <option value="EUR">EUR €</option>
-                <option value="USD">USD $</option>
-              </select>
+              <div className="input bg-slate-50 text-slate-500">USD $</div>
             </div>
           </div>
 

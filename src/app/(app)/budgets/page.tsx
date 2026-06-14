@@ -9,7 +9,9 @@ export default async function BudgetsPage() {
   const [catRes, budgetRes, txRes] = await Promise.all([
     supabase.from("categories").select("*").order("name"),
     supabase.from("budgets").select("*"),
-    supabase.from("transactions").select("*"),
+    supabase
+      .from("transactions")
+      .select("posted_on,amount,currency,category_id"),
   ]);
 
   return (

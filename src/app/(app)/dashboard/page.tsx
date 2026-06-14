@@ -13,13 +13,13 @@ export default async function DashboardPage() {
     supabase.from("budgets").select("*"),
     supabase
       .from("transactions")
-      .select("*")
+      .select("id,account_id,category_id,posted_on,description,amount,currency")
       .order("posted_on", { ascending: false }),
   ]);
 
   const profile = (profileRes.data ?? {
-    base_currency: "EUR",
-    usd_to_eur: 0.92,
+    base_currency: "USD",
+    usd_to_eur: 1,
   }) as Profile;
 
   return (

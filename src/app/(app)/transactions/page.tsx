@@ -11,7 +11,7 @@ export default async function TransactionsPage() {
     supabase.from("categories").select("*").order("name"),
     supabase
       .from("transactions")
-      .select("*")
+      .select("id,account_id,category_id,posted_on,description,amount,currency,notes")
       .order("posted_on", { ascending: false })
       .order("created_at", { ascending: false }),
   ]);

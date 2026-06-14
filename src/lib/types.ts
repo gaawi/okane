@@ -57,8 +57,9 @@ export interface CategorizationRule {
   created_at: string;
 }
 
-export const CURRENCIES = ["EUR", "USD"] as const;
+export const CURRENCIES = ["USD"] as const;
 export type Currency = (typeof CURRENCIES)[number];
+export const DEFAULT_CURRENCY = "USD";
 
 export const ACCOUNT_TYPES = [
   "checking",
