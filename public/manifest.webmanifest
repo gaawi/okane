@@ -1,0 +1,17 @@
+{
+  "name": "okane — personal finance",
+  "short_name": "okane",
+  "description": "Private, mobile-first budgeting.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#12874e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

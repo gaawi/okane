@@ -1,0 +1,22 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import BottomNav from "./BottomNav";
+
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  return (
+    <div className="mx-auto min-h-dvh max-w-xl pb-24">
+      {children}
+      <BottomNav />
+    </div>
+  );
+}
