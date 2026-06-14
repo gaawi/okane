@@ -1,5 +1,69 @@
 import type { CategorizationRule } from "./types";
 
+export interface ColumnMapping {
+  dateCol: string;
+  descCol: string;
+  amountMode: "single" | "split";
+  amountCol: string;
+  debitCol: string;
+  creditCol: string;
+  categoryCol: string;
+  accountCol: string;
+  flipSign: boolean;
+}
+
+function pick(headers: string[], candidates: string[]): string {
+  const lower = headers.map((h) => h.toLowerCase());
+  for (const c of candidates) {
+    const i = lower.findIndex((h) => h === c);
+    if (i > -1) return headers[i];
+  }
+  for (const c of candidates) {
+    const i = lower.findIndex((h) => h.includes(c));
+    if (i > -1) return headers[i];
+  }
+  return "";
+}
+
+/**
+ * Auto-detect a column mapping from the CSV headers. Recognises the Rocket
+ * Money export format (expenses positive, income negative -> flip sign) and
+ * falls back to best-effort guesses for unknown banks.
+ */
+export function detectMapping(headers: string[]): ColumnMapping {
+  const set = new Set(headers.map((h) => h.toLowerCase()));
+  const isRocketMoney =
+    set.has("original date") &&
+    set.has("account name") &&
+    set.has("institution name") &&
+    set.has("amount");
+
+  const m: ColumnMapping = {
+    dateCol: pick(headers, ["date", "fecha", "datum", "booking date"]),
+    descCol: pick(headers, ["name", "description", "concept", "payee", "detail", "memo"]),
+    amountMode: "single",
+    amountCol: pick(headers, ["amount", "importe", "value", "betrag"]),
+    debitCol: pick(headers, ["debit", "withdrawal", "cargo"]),
+    creditCol: pick(headers, ["credit", "deposit", "abono"]),
+    categoryCol: pick(headers, ["category", "categoria", "categoría"]),
+    accountCol: pick(headers, ["account name", "account", "cuenta"]),
+    flipSign: false,
+  };
+
+  if (isRocketMoney) {
+    m.descCol = pick(headers, ["name"]) || m.descCol;
+    m.amountCol = pick(headers, ["amount"]);
+    m.amountMode = "single";
+    m.flipSign = true; // Rocket Money: expenses are positive
+    m.categoryCol = pick(headers, ["category"]);
+    m.accountCol = pick(headers, ["account name"]);
+  } else if (!m.amountCol && (m.debitCol || m.creditCol)) {
+    m.amountMode = "split";
+  }
+
+  return m;
+}
+
 /**
  * Parse a money string from a bank CSV into a number.
  * Handles European ("1.234,56") and US ("1,234.56") groupings, currency

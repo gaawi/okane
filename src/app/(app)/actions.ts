@@ -2,6 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { inferIconKey } from "@/lib/icons";
+
+const IMPORT_PALETTE = [
+  "#1fa862", "#16a34a", "#0ea5e9", "#6366f1", "#f59e0b", "#ef4444",
+  "#ec4899", "#8b5cf6", "#14b8a6", "#f97316", "#06b6d4", "#64748b",
+  "#22c55e", "#3b82f6", "#a855f7", "#eab308",
+];
 
 async function uid() {
   const supabase = await createClient();
@@ -91,6 +98,82 @@ export async function importTransactions(
   if (error) return { error: error.message };
   revalidateApp();
   return { inserted: data?.length ?? 0, received: rows.length };
+}
+
+/**
+ * Make sure every category/account name referenced by an import exists,
+ * creating the missing ones, and return the full current lists so the client
+ * can resolve names to ids. New accounts inherit the import's currency.
+ */
+export async function ensureImportTargets(input: {
+  categoryNames: string[];
+  accountNames: string[];
+  currency: string;
+}) {
+  const { supabase, userId } = await uid();
+
+  const [catRes, accRes] = await Promise.all([
+    supabase.from("categories").select("id,name,color,icon,kind"),
+    supabase.from("accounts").select("id,name,currency"),
+  ]);
+  const categories = catRes.data ?? [];
+  const accounts = accRes.data ?? [];
+
+  const haveCat = new Set(categories.map((c) => c.name.trim().toLowerCase()));
+  const haveAcc = new Set(accounts.map((a) => a.name.trim().toLowerCase()));
+
+  const newCatNames = [
+    ...new Set(
+      input.categoryNames.map((n) => n.trim()).filter((n) => n.length > 0),
+    ),
+  ].filter((n) => !haveCat.has(n.toLowerCase()));
+
+  const newAccNames = [
+    ...new Set(
+      input.accountNames.map((n) => n.trim()).filter((n) => n.length > 0),
+    ),
+  ].filter((n) => !haveAcc.has(n.toLowerCase()));
+
+  if (newCatNames.length > 0) {
+    const payload = newCatNames.map((name, i) => ({
+      user_id: userId,
+      name,
+      kind: /income|reimburs|refund|deposit|salary/i.test(name)
+        ? "income"
+        : "expense",
+      color: IMPORT_PALETTE[i % IMPORT_PALETTE.length],
+      icon: inferIconKey(name),
+    }));
+    const { data, error } = await supabase
+      .from("categories")
+      .insert(payload)
+      .select("id,name,color,icon,kind");
+    if (error) return { error: error.message };
+    categories.push(...(data ?? []));
+  }
+
+  if (newAccNames.length > 0) {
+    const payload = newAccNames.map((name) => ({
+      user_id: userId,
+      name,
+      type: "checking",
+      currency: input.currency,
+    }));
+    const { data, error } = await supabase
+      .from("accounts")
+      .insert(payload)
+      .select("id,name,currency");
+    if (error) return { error: error.message };
+    accounts.push(...(data ?? []));
+  }
+
+  revalidateApp();
+  return {
+    categories,
+    accounts,
+    createdCategories: newCatNames.length,
+    createdAccounts: newAccNames.length,
+  };
 }
 
 /* ------------------------------- accounts -------------------------------- */
