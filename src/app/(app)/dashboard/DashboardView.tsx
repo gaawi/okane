@@ -13,7 +13,9 @@ import {
 } from "@/lib/format";
 import {
   activeCurrencies,
-  budgetStatusesRange,
+  averageMonthlyByCategory,
+  categoryProgress,
+  excludedCategoryIds,
   monthRange,
   monthlyTrend,
   spendingByCategoryRange,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/analytics";
 import { Progress } from "@/components/ui";
 import Donut from "@/components/Donut";
+import { CategoryIcon } from "@/components/icons";
 
 type Mode = "year" | "month";
 
@@ -63,24 +66,33 @@ export default function DashboardView({
     return { range: monthRange(month), months: 1, periodLabel: monthLabel(month) };
   }, [mode, year, month]);
 
-  const summary = useMemo(
-    () => summarizeRange(transactions, range, cur),
-    [transactions, range, cur],
-  );
-  const spend = useMemo(
-    () => spendingByCategoryRange(transactions, categories, range, cur),
-    [transactions, categories, range, cur],
-  );
-  const statuses = useMemo(
-    () => budgetStatusesRange(transactions, budgets, categories, range, cur, months),
-    [transactions, budgets, categories, range, cur, months],
-  );
-  const trend = useMemo(
-    () => monthlyTrend(transactions, year, cur),
-    [transactions, year, cur],
+  const excluded = useMemo(() => excludedCategoryIds(categories), [categories]);
+  const avgMonthly = useMemo(
+    () => averageMonthlyByCategory(transactions, cur, excluded),
+    [transactions, cur, excluded],
   );
 
-  const totalBudget = statuses.reduce((s, x) => s + x.budget.amount, 0);
+  const summary = useMemo(
+    () => summarizeRange(transactions, range, cur, excluded),
+    [transactions, range, cur, excluded],
+  );
+  const spend = useMemo(
+    () => spendingByCategoryRange(transactions, categories, range, cur, excluded),
+    [transactions, categories, range, cur, excluded],
+  );
+  const statuses = useMemo(
+    () =>
+      categoryProgress(
+        transactions, budgets, categories, range, cur, months, excluded, avgMonthly,
+      ),
+    [transactions, budgets, categories, range, cur, months, excluded, avgMonthly],
+  );
+  const trend = useMemo(
+    () => monthlyTrend(transactions, year, cur, excluded),
+    [transactions, year, cur, excluded],
+  );
+
+  const totalBudget = statuses.reduce((s, x) => s + x.budget, 0);
   const totalBudgetSpent = statuses.reduce((s, x) => s + x.spent, 0);
   const maxTrend = Math.max(1, ...trend.map((b) => Math.max(b.income, b.expenses)));
 
@@ -98,7 +110,7 @@ export default function DashboardView({
     <div>
       <header className="sticky top-0 z-20 border-b border-slate-100 bg-slate-50/90 px-4 py-3 backdrop-blur">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold tracking-tight">Overview</h1>
+          <h1 className="text-xl font-bold tracking-tight">Budget</h1>
           {currencies.length > 1 && (
             <div className="flex rounded-lg bg-slate-200 p-0.5 text-sm font-semibold">
               {currencies.map((c) => (
@@ -208,6 +220,47 @@ export default function DashboardView({
           </div>
         </div>
 
+        {/* by category — budget vs actual (the main view) */}
+        {statuses.length > 0 && (
+          <div className="card">
+            <div className="mb-1 flex items-center justify-between">
+              <p className="font-semibold">Budget by category</p>
+              <Link href="/budgets" className="text-sm font-medium text-brand-700">
+                Set budgets
+              </Link>
+            </div>
+            <p className="mb-3 text-xs text-slate-400">
+              {mode === "year" ? "This year" : "This month"} vs budget · “avg” = your
+              trailing 12-month average until you set a budget
+            </p>
+            <ul className="space-y-3.5">
+              {statuses.map((s) => (
+                <li key={s.category.id}>
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <CategoryIcon category={s.category} size="sm" />
+                    <span className="flex-1 truncate text-sm font-medium">
+                      {s.category.name}
+                      {s.isAverage && (
+                        <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-400">
+                          avg
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className={`text-sm tabular-nums ${
+                        s.ratio > 1 ? "font-semibold text-red-600" : "text-slate-500"
+                      }`}
+                    >
+                      {formatMoney(s.spent, cur)} / {formatMoney(s.budget, cur)}
+                    </span>
+                  </div>
+                  <Progress ratio={s.ratio} color={s.category.color} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* annual trend chart (year mode only) */}
         {mode === "year" && (
           <div className="card">
@@ -280,7 +333,7 @@ export default function DashboardView({
                       style={{ backgroundColor: s.category?.color ?? "#94a3b8" }}
                     />
                     <span className="flex-1 truncate text-slate-600">
-                      {s.category?.icon ?? "❓"} {s.category?.name ?? "Uncategorized"}
+                      {s.category?.name ?? "Uncategorized"}
                     </span>
                     <span className="font-medium tabular-nums">
                       {formatMoney(s.spent, cur)}
@@ -298,37 +351,6 @@ export default function DashboardView({
                 Add transactions
               </Link>
             </div>
-          </div>
-        )}
-
-        {/* budgets */}
-        {statuses.length > 0 && (
-          <div className="card">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="font-semibold">Budgets</p>
-              <Link href="/budgets" className="text-sm font-medium text-brand-700">
-                Manage
-              </Link>
-            </div>
-            <ul className="space-y-3">
-              {statuses.slice(0, 6).map((s) => (
-                <li key={s.budget.id}>
-                  <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="text-slate-600">
-                      {s.category?.icon} {s.category?.name ?? "—"}
-                    </span>
-                    <span
-                      className={
-                        s.ratio > 1 ? "font-semibold text-red-600" : "text-slate-500"
-                      }
-                    >
-                      {formatMoney(s.spent, cur)} / {formatMoney(s.budget.amount, cur)}
-                    </span>
-                  </div>
-                  <Progress ratio={s.ratio} color={s.category?.color} />
-                </li>
-              ))}
-            </ul>
           </div>
         )}
 
@@ -350,9 +372,7 @@ export default function DashboardView({
                   const cat = categories.find((c) => c.id === t.category_id);
                   return (
                     <li key={t.id} className="flex items-center gap-3 py-2.5">
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100">
-                        {cat?.icon ?? "💳"}
-                      </span>
+                      <CategoryIcon category={cat ?? null} size="sm" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
                           {t.description || "(no description)"}

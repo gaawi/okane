@@ -1,6 +1,25 @@
 import type { Budget, Category, Transaction } from "./types";
 import { monthBounds, yearBounds } from "./format";
 
+/**
+ * Transfers and card payments move money between your own accounts — they are
+ * not real income or spending, so they're excluded from totals and budgets.
+ */
+export function isTransferCategory(name?: string | null): boolean {
+  if (!name) return false;
+  return /transfer|credit card payment/i.test(name);
+}
+
+export function excludedCategoryIds(categories: Category[]): Set<string> {
+  return new Set(
+    categories.filter((c) => isTransferCategory(c.name)).map((c) => c.id),
+  );
+}
+
+function isExcluded(t: Transaction, excluded?: Set<string>): boolean {
+  return !!(excluded && t.category_id && excluded.has(t.category_id));
+}
+
 export interface MonthSummary {
   income: number;
   expenses: number; // positive number representing money out
@@ -116,12 +135,14 @@ export function summarizeRange(
   transactions: Transaction[],
   r: DateRange,
   currency: string,
+  excluded?: Set<string>,
 ): MonthSummary {
   let income = 0;
   let expenses = 0;
   for (const t of transactions) {
     if (t.currency !== currency) continue;
     if (!inRange(t, r)) continue;
+    if (isExcluded(t, excluded)) continue;
     if (t.amount >= 0) income += t.amount;
     else expenses += -t.amount;
   }
@@ -133,6 +154,7 @@ export function spendingByCategoryRange(
   categories: Category[],
   r: DateRange,
   currency: string,
+  excluded?: Set<string>,
 ): CategorySpend[] {
   const byId = new Map(categories.map((c) => [c.id, c]));
   const totals = new Map<string, number>();
@@ -140,6 +162,7 @@ export function spendingByCategoryRange(
     if (t.currency !== currency) continue;
     if (!inRange(t, r)) continue;
     if (t.amount >= 0) continue;
+    if (isExcluded(t, excluded)) continue;
     const key = t.category_id ?? "__uncat__";
     totals.set(key, (totals.get(key) ?? 0) + -t.amount);
   }
@@ -194,6 +217,7 @@ export function monthlyTrend(
   transactions: Transaction[],
   year: string,
   currency: string,
+  excluded?: Set<string>,
 ): MonthBar[] {
   const bars: MonthBar[] = Array.from({ length: 12 }, (_, i) => ({
     monthIndex: i,
@@ -203,12 +227,93 @@ export function monthlyTrend(
   for (const t of transactions) {
     if (t.currency !== currency) continue;
     if (!t.posted_on.startsWith(year + "-")) continue;
+    if (isExcluded(t, excluded)) continue;
     const m = Number(t.posted_on.slice(5, 7)) - 1;
     if (m < 0 || m > 11) continue;
     if (t.amount >= 0) bars[m].income += t.amount;
     else bars[m].expenses += -t.amount;
   }
   return bars;
+}
+
+/**
+ * Average monthly spend per category over the trailing 12 months (from the
+ * given reference month, default today). Used as a budget baseline until the
+ * user sets their own budgets. Excluded (transfer) categories are skipped.
+ */
+export function averageMonthlyByCategory(
+  transactions: Transaction[],
+  currency: string,
+  excluded: Set<string>,
+  refMonth: string = new Date().toISOString().slice(0, 7),
+): Map<string, number> {
+  // 12-month window ending at refMonth (inclusive)
+  const [ry, rm] = refMonth.split("-").map(Number);
+  const startDate = new Date(ry, rm - 1 - 11, 1);
+  const start = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}-01`;
+  const end = `${refMonth}-31`;
+
+  const totals = new Map<string, number>();
+  for (const t of transactions) {
+    if (t.currency !== currency) continue;
+    if (t.posted_on < start || t.posted_on > end) continue;
+    if (t.amount >= 0) continue;
+    if (!t.category_id || excluded.has(t.category_id)) continue;
+    totals.set(t.category_id, (totals.get(t.category_id) ?? 0) + -t.amount);
+  }
+  const avg = new Map<string, number>();
+  for (const [id, sum] of totals) avg.set(id, sum / 12);
+  return avg;
+}
+
+export interface CategoryProgress {
+  category: Category;
+  spent: number;
+  budget: number; // scaled to the active period
+  ratio: number;
+  isAverage: boolean; // true when the budget is the average fallback
+}
+
+/**
+ * Per-category budget-vs-actual for the active period. Uses the user's budget
+ * if set, otherwise the trailing-12-month average. Income and transfer
+ * categories are excluded.
+ */
+export function categoryProgress(
+  transactions: Transaction[],
+  budgets: Budget[],
+  categories: Category[],
+  r: DateRange,
+  currency: string,
+  months: number,
+  excluded: Set<string>,
+  avgMonthly: Map<string, number>,
+): CategoryProgress[] {
+  const spendByCat = new Map<string, number>();
+  for (const s of spendingByCategoryRange(transactions, categories, r, currency, excluded)) {
+    if (s.category) spendByCat.set(s.category.id, s.spent);
+  }
+  const budgetByCat = new Map(
+    budgets.filter((b) => b.currency === currency).map((b) => [b.category_id, b.amount]),
+  );
+
+  return categories
+    .filter((c) => c.kind !== "income" && !excluded.has(c.id))
+    .map((c) => {
+      const spent = spendByCat.get(c.id) ?? 0;
+      const userBudget = budgetByCat.get(c.id);
+      const monthly = userBudget ?? avgMonthly.get(c.id) ?? 0;
+      const budget = monthly * months;
+      return {
+        category: c,
+        spent,
+        budget,
+        ratio: budget > 0 ? spent / budget : 0,
+        isAverage: userBudget == null,
+      };
+    })
+    .filter((row) => row.budget > 0 || row.spent > 0)
+    .sort((a, b) => b.spent - a.spent);
 }
 
 /** Currencies that actually appear in the data, in a stable order. */

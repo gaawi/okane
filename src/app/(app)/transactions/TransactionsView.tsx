@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Account, Category, Transaction } from "@/lib/types";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PageHeader, EmptyState } from "@/components/ui";
+import { CategoryIcon, CategoryGlyph } from "@/components/icons";
 import {
   createTransaction,
   deleteTransaction,
@@ -94,14 +95,19 @@ export default function TransactionsView({
           <FilterChip
             active={catFilter === "__uncat__"}
             onClick={() => setCatFilter("__uncat__")}
-            label="❓ Uncategorized"
+            label="Uncategorized"
           />
           {categories.map((c) => (
             <FilterChip
               key={c.id}
               active={catFilter === c.id}
               onClick={() => setCatFilter(c.id)}
-              label={`${c.icon} ${c.name}`}
+              label={
+                <span className="inline-flex items-center gap-1.5">
+                  <CategoryGlyph category={c} />
+                  {c.name}
+                </span>
+              }
             />
           ))}
         </div>
@@ -127,9 +133,7 @@ export default function TransactionsView({
                       onClick={() => setSheet({ edit: t })}
                       className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50"
                     >
-                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-lg">
-                        {cat?.icon ?? "💳"}
-                      </span>
+                      <CategoryIcon category={cat ?? null} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-medium">
                           {t.description || "(no description)"}
@@ -233,7 +237,7 @@ function FilterChip({
 }: {
   active: boolean;
   onClick: () => void;
-  label: string;
+  label: React.ReactNode;
 }) {
   return (
     <button
@@ -380,7 +384,7 @@ function TransactionSheet({
               <option value="">Uncategorized</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.icon} {c.name}
+                  {c.name}
                 </option>
               ))}
             </select>

@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CategorizationRule, Category } from "@/lib/types";
 import { PageHeader } from "@/components/ui";
+import { CategoryIcon, CategoryGlyph, IconByKey } from "@/components/icons";
+import { ICON_KEYS } from "@/lib/icons";
 import {
   createCategory,
   createRule,
@@ -11,10 +13,6 @@ import {
   deleteRule,
 } from "../actions";
 
-const ICONS = [
-  "💸", "🛒", "🏠", "💡", "🚗", "🍽️", "🛍️", "🔁", "🩺", "🎬",
-  "✈️", "🏦", "📦", "💰", "☕", "📱", "🎓", "🐾", "🎁", "⛽",
-];
 const COLORS = [
   "#1fa862", "#16a34a", "#0ea5e9", "#6366f1", "#f59e0b", "#ef4444",
   "#ec4899", "#8b5cf6", "#14b8a6", "#f97316", "#06b6d4", "#64748b",
@@ -31,7 +29,7 @@ export default function CategoriesView({
   const [pending, startTransition] = useTransition();
 
   const [name, setName] = useState("");
-  const [icon, setIcon] = useState(ICONS[0]);
+  const [icon, setIcon] = useState<string>(ICON_KEYS[0]);
   const [color, setColor] = useState(COLORS[0]);
   const [kind, setKind] = useState<"expense" | "income">("expense");
 
@@ -94,15 +92,18 @@ export default function CategoriesView({
           </div>
 
           <div className="flex flex-wrap gap-1.5">
-            {ICONS.map((ic) => (
+            {ICON_KEYS.map((ic) => (
               <button
                 key={ic}
                 onClick={() => setIcon(ic)}
-                className={`flex h-9 w-9 items-center justify-center rounded-lg text-lg ${
-                  icon === ic ? "bg-brand-100 ring-2 ring-brand-500" : "bg-slate-100"
+                className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                  icon === ic
+                    ? "bg-brand-100 text-brand-700 ring-2 ring-brand-500"
+                    : "bg-slate-100 text-slate-600"
                 }`}
+                aria-label={ic}
               >
-                {ic}
+                <IconByKey iconKey={ic} className="h-[18px] w-[18px]" />
               </button>
             ))}
           </div>
@@ -131,12 +132,7 @@ export default function CategoriesView({
         <div className="card divide-y divide-slate-100 p-0">
           {categories.map((c) => (
             <div key={c.id} className="flex items-center gap-3 px-4 py-3">
-              <span
-                className="flex h-9 w-9 items-center justify-center rounded-full text-lg"
-                style={{ backgroundColor: c.color + "22" }}
-              >
-                {c.icon}
-              </span>
+              <CategoryIcon category={c} size="sm" />
               <span className="flex-1 font-medium">{c.name}</span>
               <span className="text-xs uppercase text-slate-400">{c.kind}</span>
               <button
@@ -178,7 +174,7 @@ export default function CategoriesView({
               <option value="">Category…</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.icon} {c.name}
+                  {c.name}
                 </option>
               ))}
             </select>
@@ -199,8 +195,10 @@ export default function CategoriesView({
                     {r.match_text}
                   </span>
                   <span className="text-slate-400">→</span>
-                  <span className="flex-1">
-                    {catById.get(r.category_id)?.icon}{" "}
+                  <span className="flex flex-1 items-center gap-1.5">
+                    {catById.get(r.category_id) && (
+                      <CategoryGlyph category={catById.get(r.category_id)!} />
+                    )}
                     {catById.get(r.category_id)?.name ?? "—"}
                   </span>
                   <button

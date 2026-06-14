@@ -9,7 +9,7 @@ inserts transactions de-duplicated by import_hash):
     SUPABASE_URL=... SUPABASE_KEY=... OKANE_EMAIL=... OKANE_PASSWORD=... \
         python3 scripts/import_rocketmoney.py FILE.csv --commit
 """
-import csv, sys, os, json, urllib.request, urllib.error
+import csv, sys, os, json, hashlib, urllib.request, urllib.error
 from collections import Counter
 
 CURRENCY = "USD"  # this Rocket Money export is the USD data set
@@ -26,12 +26,9 @@ def parse_amount(raw):
         return None
 
 
-def djb2_hex(s: str) -> str:
-    """Mirror the app's importHash so app re-imports dedupe against this run."""
-    h = 5381
-    for ch in s:
-        h = ((h * 33) ^ ord(ch)) & 0xFFFFFFFF
-    return format(h, "x")
+def row_hash(s: str) -> str:
+    """Collision-free fingerprint for a row, stored in import_hash for de-dup."""
+    return hashlib.md5(s.encode("utf-8")).hexdigest()
 
 
 def transform(rows):
@@ -157,34 +154,40 @@ def main():
     print(f"Created {len(new_accs)} accounts")
 
     # 5) build + insert transactions in batches (de-duped by import_hash)
-    payload = []
+    # Keep every row. Identical same-day transactions (e.g. multiple subway
+    # taps) are real, so we make each occurrence's import_hash unique by adding
+    # an occurrence counter — otherwise the unique index would reject repeats.
+    payload, occ = [], {}
     for t in txs:
         acc_id = acc_map.get((t["account_name"] or "").lower())
         cat_id = cat_map.get((t["category_name"] or "").lower())
-        h = djb2_hex(f"{acc_id or 'none'}|{t['posted_on']}|{t['amount']:.2f}|"
-                     f"{t['description'].strip().lower()}")
+        natural = (f"{acc_id or 'none'}|{t['posted_on']}|{t['amount']:.2f}|"
+                   f"{t['description'].strip().lower()}")
+        n = occ.get(natural, 0)
+        occ[natural] = n + 1
         payload.append({
             "user_id": user_id, "account_id": acc_id, "category_id": cat_id,
             "posted_on": t["posted_on"], "description": t["description"],
             "amount": t["amount"], "currency": t["currency"],
-            "notes": t["notes"], "import_hash": h,
+            "notes": t["notes"], "import_hash": row_hash(f"{natural}|{n}"),
         })
+
+    # Reset any prior partial load so re-runs are clean (RLS scopes this to us).
+    st, res = http("DELETE", f"{url}/rest/v1/transactions?user_id=eq.{user_id}",
+                   key, token, prefer="return=minimal")
+    print(f"Cleared existing transactions (status {st})")
 
     inserted = 0
     for i in range(0, len(payload), BATCH):
         chunk = payload[i:i + BATCH]
-        st, res = http("POST",
-                       f"{url}/rest/v1/transactions?on_conflict=user_id,import_hash",
-                       key, token, body=chunk,
-                       prefer="resolution=ignore-duplicates,return=representation")
+        st, res = http("POST", f"{url}/rest/v1/transactions", key, token,
+                       body=chunk, prefer="return=minimal")
         if st >= 300:
             print("INSERT FAILED at batch", i, ":", st, res); sys.exit(1)
-        inserted += len(res) if isinstance(res, list) else 0
-        print(f"  batch {i//BATCH+1}: +{len(res) if isinstance(res,list) else 0} "
-              f"(total {inserted})")
+        inserted += len(chunk)
+        print(f"  batch {i//BATCH+1}: total {inserted}")
 
-    print(f"\nDONE. Inserted {inserted} new transactions "
-          f"({len(payload)-inserted} were duplicates/skipped).")
+    print(f"\nDONE. Inserted {inserted} transactions.")
 
 
 if __name__ == "__main__":

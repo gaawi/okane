@@ -5,11 +5,14 @@ import { useRouter } from "next/navigation";
 import type { Budget, Category, Transaction } from "@/lib/types";
 import { formatMoney, monthKey, yearKey } from "@/lib/format";
 import {
+  averageMonthlyByCategory,
   budgetStatusesRange,
+  isTransferCategory,
   monthRange,
   yearRange,
 } from "@/lib/analytics";
 import { PageHeader, Progress } from "@/components/ui";
+import { CategoryIcon } from "@/components/icons";
 import { upsertBudget, deleteBudget } from "../actions";
 
 export default function BudgetsView({
@@ -27,8 +30,20 @@ export default function BudgetsView({
   const [scope, setScope] = useState<"month" | "year">("year");
 
   const expenseCats = useMemo(
-    () => categories.filter((c) => c.kind !== "income"),
+    () =>
+      categories.filter(
+        (c) => c.kind !== "income" && !isTransferCategory(c.name),
+      ),
     [categories],
+  );
+  const avgMonthly = useMemo(
+    () =>
+      averageMonthlyByCategory(
+        transactions,
+        currency,
+        new Set(categories.filter((c) => isTransferCategory(c.name)).map((c) => c.id)),
+      ),
+    [transactions, currency, categories],
   );
 
   const range = scope === "year" ? yearRange(yearKey()) : monthRange(monthKey());
@@ -124,9 +139,7 @@ export default function BudgetsView({
             return (
               <div key={c.id} className="px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-lg">
-                    {c.icon}
-                  </span>
+                  <CategoryIcon category={c} size="sm" />
                   <span className="flex-1 font-medium">{c.name}</span>
                   <div className="relative w-28">
                     <input
@@ -134,7 +147,11 @@ export default function BudgetsView({
                       inputMode="decimal"
                       step="0.01"
                       defaultValue={b ? String(b.amount) : ""}
-                      placeholder="0"
+                      placeholder={
+                        avgMonthly.get(c.id)
+                          ? Math.round(avgMonthly.get(c.id)!).toString()
+                          : "0"
+                      }
                       onBlur={(e) => {
                         const v = e.target.value;
                         const cur = b ? String(b.amount) : "";
@@ -170,8 +187,8 @@ export default function BudgetsView({
         </div>
 
         <p className="px-1 text-center text-xs text-slate-400">
-          Enter a monthly cap. The yearly view multiplies it by 12. Set to 0 or clear
-          to remove a budget. {pending && "Saving…"}
+          Enter a monthly cap (the greyed number is your 12-month average). The yearly
+          view multiplies it by 12. Clear or set 0 to remove. {pending && "Saving…"}
         </p>
       </div>
     </div>
