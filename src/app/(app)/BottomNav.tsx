@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, ReceiptText, Plus, Target, Settings } from "lucide-react";
+import { PieChart, ReceiptText, Plus, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const ITEMS: Array<{
@@ -11,10 +11,9 @@ const ITEMS: Array<{
   icon: LucideIcon;
   primary?: boolean;
 }> = [
-  { href: "/dashboard", label: "Home", icon: Home },
+  { href: "/dashboard", label: "Budget", icon: PieChart },
   { href: "/transactions", label: "Activity", icon: ReceiptText },
   { href: "/transactions/import", label: "Add", icon: Plus, primary: true },
-  { href: "/budgets", label: "Budgets", icon: Target },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

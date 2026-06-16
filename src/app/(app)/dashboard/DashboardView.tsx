@@ -1,399 +1,296 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
-import type { Budget, Category, Profile, Transaction } from "@/lib/types";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import type { Budget, Category } from "@/lib/types";
+import type { Transaction } from "@/lib/types";
+import { formatMoney, monthKey, monthLabel, shiftMonth, yearKey } from "@/lib/format";
 import {
-  formatMoney,
-  monthKey,
-  monthLabel,
-  shiftMonth,
-  yearKey,
-  MONTH_ABBR,
-} from "@/lib/format";
-import {
-  activeCurrencies,
   averageMonthlyByCategory,
   categoryProgress,
   excludedCategoryIds,
   monthRange,
-  monthlyTrend,
-  spendingByCategoryRange,
   summarizeRange,
   yearRange,
   type DateRange,
 } from "@/lib/analytics";
 import { Progress } from "@/components/ui";
-import Donut from "@/components/Donut";
 import { CategoryIcon } from "@/components/icons";
+import { upsertBudget, deleteBudget } from "../actions";
 
-type Mode = "year" | "month";
+const CUR = "USD";
 
 export default function DashboardView({
-  profile,
   categories,
   budgets,
   transactions,
 }: {
-  profile: Profile;
   categories: Category[];
   budgets: Budget[];
   transactions: Transaction[];
 }) {
-  const [mode, setMode] = useState<Mode>("year");
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [mode, setMode] = useState<"month" | "year">("month");
   const [year, setYear] = useState(yearKey());
   const [month, setMonth] = useState(monthKey());
+  const [editing, setEditing] = useState<Category | null>(null);
 
-  const currencies = useMemo(
-    () => activeCurrencies(transactions, budgets),
-    [transactions, budgets],
+  const excluded = useMemo(() => excludedCategoryIds(categories), [categories]);
+  const avgMonthly = useMemo(
+    () => averageMonthlyByCategory(transactions, CUR, excluded),
+    [transactions, excluded],
   );
-  const [currency, setCurrency] = useState(
-    currencies[0] ?? profile.base_currency ?? "USD",
-  );
-  const cur = currencies.includes(currency) ? currency : (currencies[0] ?? "USD");
 
-  // The active period as a date range, plus how many months it spans (for
-  // scaling monthly budgets to the period).
   const { range, months, periodLabel } = useMemo<{
     range: DateRange;
     months: number;
     periodLabel: string;
   }>(() => {
-    if (mode === "year") {
+    if (mode === "year")
       return { range: yearRange(year), months: 12, periodLabel: year };
-    }
     return { range: monthRange(month), months: 1, periodLabel: monthLabel(month) };
   }, [mode, year, month]);
 
-  const excluded = useMemo(() => excludedCategoryIds(categories), [categories]);
-  const avgMonthly = useMemo(
-    () => averageMonthlyByCategory(transactions, cur, excluded),
-    [transactions, cur, excluded],
-  );
-
-  const summary = useMemo(
-    () => summarizeRange(transactions, range, cur, excluded),
-    [transactions, range, cur, excluded],
-  );
-  const spend = useMemo(
-    () => spendingByCategoryRange(transactions, categories, range, cur, excluded),
-    [transactions, categories, range, cur, excluded],
-  );
-  const statuses = useMemo(
+  const rows = useMemo(
     () =>
       categoryProgress(
-        transactions, budgets, categories, range, cur, months, excluded, avgMonthly,
+        transactions, budgets, categories, range, CUR, months, excluded, avgMonthly,
       ),
-    [transactions, budgets, categories, range, cur, months, excluded, avgMonthly],
+    [transactions, budgets, categories, range, months, excluded, avgMonthly],
   );
-  const trend = useMemo(
-    () => monthlyTrend(transactions, year, cur, excluded),
-    [transactions, year, cur, excluded],
+  const summary = useMemo(
+    () => summarizeRange(transactions, range, CUR, excluded),
+    [transactions, range, excluded],
   );
 
-  const totalBudget = statuses.reduce((s, x) => s + x.budget, 0);
-  const totalBudgetSpent = statuses.reduce((s, x) => s + x.spent, 0);
-  const maxTrend = Math.max(1, ...trend.map((b) => Math.max(b.income, b.expenses)));
+  const totalBudget = rows.reduce((s, r) => s + r.budget, 0);
+  const atEdge = mode === "year" ? year === yearKey() : month === monthKey();
 
-  const slices = spend.slice(0, 6).map((s) => ({
-    label: s.category?.name ?? "Uncategorized",
-    value: s.spent,
-    color: s.category?.color ?? "#94a3b8",
-  }));
-
-  const avgMonthlySpend = mode === "year" ? summary.expenses / 12 : summary.expenses;
-  const atCurrentEdge =
-    mode === "year" ? year === yearKey() : month === monthKey();
+  function step(delta: number) {
+    if (mode === "year") setYear(String(Number(year) + delta));
+    else setMonth(shiftMonth(month, delta));
+  }
 
   return (
     <div>
       <header className="sticky top-0 z-20 border-b border-slate-100 bg-slate-50/90 px-4 py-3 backdrop-blur">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold tracking-tight">Budget</h1>
-          {currencies.length > 1 && (
-            <div className="flex rounded-lg bg-slate-200 p-0.5 text-sm font-semibold">
-              {currencies.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setCurrency(c)}
-                  className={`rounded-md px-3 py-1 ${
-                    c === cur ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
-                  }`}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* year / month toggle */}
-        <div className="mt-2 flex items-center justify-between gap-3">
+        <div className="mb-3 flex justify-center">
           <div className="flex rounded-lg bg-slate-200 p-0.5 text-sm font-semibold">
             <button
-              onClick={() => setMode("year")}
-              className={`rounded-md px-3 py-1 ${
-                mode === "year" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
-              }`}
-            >
-              Year
-            </button>
-            <button
               onClick={() => setMode("month")}
-              className={`rounded-md px-3 py-1 ${
-                mode === "month" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+              className={`rounded-md px-5 py-1.5 ${
+                mode === "month" ? "bg-white shadow-sm" : "text-slate-500"
               }`}
             >
               Month
             </button>
-          </div>
-          <div className="flex items-center gap-1">
             <button
-              onClick={() =>
-                mode === "year"
-                  ? setYear(String(Number(year) - 1))
-                  : setMonth(shiftMonth(month, -1))
-              }
-              className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-200"
-              aria-label="Previous period"
+              onClick={() => setMode("year")}
+              className={`rounded-md px-5 py-1.5 ${
+                mode === "year" ? "bg-white shadow-sm" : "text-slate-500"
+              }`}
             >
-              ‹
-            </button>
-            <span className="min-w-[7rem] text-center text-sm font-medium text-slate-600">
-              {periodLabel}
-            </span>
-            <button
-              onClick={() =>
-                mode === "year"
-                  ? setYear(String(Number(year) + 1))
-                  : setMonth(shiftMonth(month, 1))
-              }
-              disabled={atCurrentEdge}
-              className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-200 disabled:opacity-30"
-              aria-label="Next period"
-            >
-              ›
+              Year
             </button>
           </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => step(-1)}
+            className="rounded-lg px-3 py-1 text-lg text-slate-500 hover:bg-slate-200"
+            aria-label="Previous"
+          >
+            ‹
+          </button>
+          <span className="text-base font-semibold capitalize">{periodLabel}</span>
+          <button
+            onClick={() => step(1)}
+            disabled={atEdge}
+            className="rounded-lg px-3 py-1 text-lg text-slate-500 hover:bg-slate-200 disabled:opacity-30"
+            aria-label="Next"
+          >
+            ›
+          </button>
         </div>
       </header>
 
       <div className="space-y-4 p-4">
-        {/* headline */}
-        <div className="card">
-          <p className="text-sm text-slate-500">
-            {mode === "year" ? `Total spent in ${year}` : `Spent in ${periodLabel}`}
+        {/* total */}
+        <div className="card text-center">
+          <p className="text-sm text-slate-500">Spent</p>
+          <p className="text-4xl font-bold tracking-tight">
+            {formatMoney(summary.expenses, CUR)}
           </p>
-          <p className="text-3xl font-bold text-slate-900">
-            {formatMoney(summary.expenses, cur)}
-          </p>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-            <div className="rounded-xl bg-brand-50 px-2 py-2">
-              <p className="text-brand-700">Income</p>
-              <p className="font-semibold text-brand-800">
-                {formatMoney(summary.income, cur)}
+          {totalBudget > 0 && (
+            <>
+              <p className="mt-1 text-sm text-slate-400">
+                of {formatMoney(totalBudget, CUR)} budget
               </p>
-            </div>
-            <div
-              className={`rounded-xl px-2 py-2 ${
-                summary.net >= 0 ? "bg-brand-50" : "bg-red-50"
-              }`}
-            >
-              <p className={summary.net >= 0 ? "text-brand-700" : "text-red-700"}>
-                Net
-              </p>
-              <p
-                className={`font-semibold ${
-                  summary.net >= 0 ? "text-brand-800" : "text-red-800"
-                }`}
-              >
-                {formatMoney(summary.net, cur)}
-              </p>
-            </div>
-            <div className="rounded-xl bg-slate-100 px-2 py-2">
-              <p className="text-slate-500">Avg/mo</p>
-              <p className="font-semibold text-slate-700">
-                {formatMoney(avgMonthlySpend, cur)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* by category — budget vs actual (the main view) */}
-        {statuses.length > 0 && (
-          <div className="card">
-            <div className="mb-1 flex items-center justify-between">
-              <p className="font-semibold">Budget by category</p>
-              <Link href="/budgets" className="text-sm font-medium text-brand-700">
-                Set budgets
-              </Link>
-            </div>
-            <p className="mb-3 text-xs text-slate-400">
-              {mode === "year" ? "This year" : "This month"} vs budget · “avg” = your
-              trailing 12-month average until you set a budget
-            </p>
-            <ul className="space-y-3.5">
-              {statuses.map((s) => (
-                <li key={s.category.id}>
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <CategoryIcon category={s.category} size="sm" />
-                    <span className="flex-1 truncate text-sm font-medium">
-                      {s.category.name}
-                      {s.isAverage && (
-                        <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-400">
-                          avg
-                        </span>
-                      )}
-                    </span>
-                    <span
-                      className={`text-sm tabular-nums ${
-                        s.ratio > 1 ? "font-semibold text-red-600" : "text-slate-500"
-                      }`}
-                    >
-                      {formatMoney(s.spent, cur)} / {formatMoney(s.budget, cur)}
-                    </span>
-                  </div>
-                  <Progress ratio={s.ratio} color={s.category.color} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* annual trend chart (year mode only) */}
-        {mode === "year" && (
-          <div className="card">
-            <p className="mb-3 font-semibold">Monthly spending in {year}</p>
-            <div className="flex h-36 items-end justify-between gap-1">
-              {trend.map((b) => {
-                const isThisMonth =
-                  year === yearKey() &&
-                  b.monthIndex === new Date().getMonth();
-                return (
-                  <button
-                    key={b.monthIndex}
-                    onClick={() => {
-                      setMode("month");
-                      setMonth(`${year}-${String(b.monthIndex + 1).padStart(2, "0")}`);
-                    }}
-                    className="group flex flex-1 flex-col items-center gap-1"
-                    title={`${MONTH_ABBR[b.monthIndex]}: ${formatMoney(b.expenses, cur)}`}
-                  >
-                    <div className="flex h-28 w-full items-end justify-center">
-                      <div
-                        className={`w-full max-w-[18px] rounded-t transition-all group-hover:opacity-80 ${
-                          isThisMonth ? "bg-brand-600" : "bg-brand-300"
-                        }`}
-                        style={{
-                          height: `${(b.expenses / maxTrend) * 100}%`,
-                          minHeight: b.expenses > 0 ? "3px" : "0",
-                        }}
-                      />
-                    </div>
-                    <span className="text-[10px] text-slate-400">
-                      {MONTH_ABBR[b.monthIndex][0]}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-1 text-center text-xs text-slate-400">
-              Tap a bar to open that month
-            </p>
-          </div>
-        )}
-
-        {/* overall budget for the period */}
-        {totalBudget > 0 && (
-          <div className="card">
-            <div className="mb-2 flex items-baseline justify-between">
-              <p className="font-semibold">
-                Budget used {mode === "year" ? "(annualized)" : ""}
-              </p>
-              <p className="text-sm text-slate-500">
-                {formatMoney(totalBudgetSpent, cur)} of {formatMoney(totalBudget, cur)}
-              </p>
-            </div>
-            <Progress ratio={totalBudget > 0 ? totalBudgetSpent / totalBudget : 0} />
-          </div>
-        )}
-
-        {/* breakdown */}
-        {spend.length > 0 ? (
-          <div className="card">
-            <p className="mb-3 font-semibold">Where it went</p>
-            <div className="flex items-center gap-4">
-              <Donut slices={slices} />
-              <ul className="flex-1 space-y-1.5 text-sm">
-                {spend.slice(0, 6).map((s, i) => (
-                  <li key={i} className="flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: s.category?.color ?? "#94a3b8" }}
-                    />
-                    <span className="flex-1 truncate text-slate-600">
-                      {s.category?.name ?? "Uncategorized"}
-                    </span>
-                    <span className="font-medium tabular-nums">
-                      {formatMoney(s.spent, cur)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        ) : (
-          <div className="card text-center text-sm text-slate-500">
-            No spending recorded for {periodLabel}.
-            <div className="mt-3">
-              <Link href="/transactions/import" className="btn-primary">
-                Add transactions
-              </Link>
-            </div>
-          </div>
-        )}
-
-        <div className="card">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="font-semibold">Recent</p>
-            <Link href="/transactions" className="text-sm font-medium text-brand-700">
-              See all
-            </Link>
-          </div>
-          {transactions.filter((t) => t.currency === cur).length === 0 ? (
-            <p className="py-4 text-center text-sm text-slate-500">Nothing here yet.</p>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {transactions
-                .filter((t) => t.currency === cur)
-                .slice(0, 6)
-                .map((t) => {
-                  const cat = categories.find((c) => c.id === t.category_id);
-                  return (
-                    <li key={t.id} className="flex items-center gap-3 py-2.5">
-                      <CategoryIcon category={cat ?? null} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {t.description || "(no description)"}
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          {cat?.name ?? "Uncategorized"}
-                        </p>
-                      </div>
-                      <span
-                        className={`text-sm font-semibold tabular-nums ${
-                          t.amount >= 0 ? "text-brand-700" : "text-slate-800"
-                        }`}
-                      >
-                        {formatMoney(t.amount, t.currency)}
-                      </span>
-                    </li>
-                  );
-                })}
-            </ul>
+              <div className="mt-3">
+                <Progress ratio={summary.expenses / totalBudget} />
+              </div>
+            </>
           )}
         </div>
+
+        {/* by category */}
+        {rows.length === 0 ? (
+          <div className="card py-10 text-center text-sm text-slate-500">
+            No spending for {periodLabel}.
+          </div>
+        ) : (
+          <div className="card divide-y divide-slate-100 p-0">
+            {rows.map((r) => (
+              <button
+                key={r.category.id}
+                onClick={() => setEditing(r.category)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50"
+              >
+                <CategoryIcon category={r.category} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {r.category.name}
+                    {r.isAverage && (
+                      <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-400">
+                        avg
+                      </span>
+                    )}
+                  </p>
+                  <div className="mt-1">
+                    <Progress ratio={r.ratio} color={r.category.color} />
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p
+                    className={`text-sm font-semibold tabular-nums ${
+                      r.ratio > 1 ? "text-red-600" : "text-slate-900"
+                    }`}
+                  >
+                    {formatMoney(r.spent, CUR)}
+                  </p>
+                  <p className="text-xs tabular-nums text-slate-400">
+                    of {formatMoney(r.budget, CUR)}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <p className="px-1 text-center text-xs text-slate-400">
+          Tap a category to set its monthly budget. “avg” means we’re using your
+          average until you set one.
+        </p>
+      </div>
+
+      {editing && (
+        <BudgetSheet
+          category={editing}
+          current={
+            budgets.find((b) => b.category_id === editing.id && b.currency === CUR)
+              ?.amount
+          }
+          existingId={
+            budgets.find((b) => b.category_id === editing.id && b.currency === CUR)?.id
+          }
+          avg={avgMonthly.get(editing.id)}
+          pending={pending}
+          onClose={() => setEditing(null)}
+          onSave={(amount, existingId) =>
+            startTransition(async () => {
+              if (amount > 0) {
+                await upsertBudget({
+                  category_id: editing.id,
+                  amount,
+                  currency: CUR,
+                });
+              } else if (existingId) {
+                await deleteBudget(existingId);
+              }
+              setEditing(null);
+              router.refresh();
+            })
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function BudgetSheet({
+  category,
+  current,
+  existingId,
+  avg,
+  pending,
+  onClose,
+  onSave,
+}: {
+  category: Category;
+  current?: number;
+  existingId?: string;
+  avg?: number;
+  pending: boolean;
+  onClose: () => void;
+  onSave: (amount: number, existingId?: string) => void;
+}) {
+  const [value, setValue] = useState(current != null ? String(current) : "");
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40">
+      <div className="w-full max-w-xl rounded-t-3xl bg-white p-5 pb-8">
+        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200" />
+        <div className="mb-4 flex items-center gap-3">
+          <CategoryIcon category={category} />
+          <div>
+            <h2 className="text-lg font-bold">{category.name}</h2>
+            <p className="text-sm text-slate-500">Monthly budget</p>
+          </div>
+        </div>
+
+        <div className="relative">
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+            $
+          </span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={avg ? Math.round(avg).toString() : "0"}
+            className="input pl-7 text-lg"
+          />
+        </div>
+        {avg != null && (
+          <p className="mt-1.5 text-xs text-slate-400">
+            Your 12-month average is {formatMoney(avg, CUR)}/mo.
+          </p>
+        )}
+
+        <div className="mt-5 flex gap-2">
+          <button onClick={onClose} className="btn-ghost flex-1">
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(Number(value) || 0, existingId)}
+            disabled={pending}
+            className="btn-primary flex-1"
+          >
+            {pending ? "Saving…" : "Save"}
+          </button>
+        </div>
+        {existingId && (
+          <button
+            onClick={() => onSave(0, existingId)}
+            disabled={pending}
+            className="mt-2 w-full py-2 text-sm font-medium text-slate-400"
+          >
+            Remove budget (use average)
+          </button>
+        )}
       </div>
     </div>
   );
